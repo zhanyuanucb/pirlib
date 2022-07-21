@@ -9,6 +9,8 @@ from pirlib.iotypes import DirectoryPath, FilePath
 from pirlib.task import task
 from pirlib.pipeline import pipeline
 
+from pirlib.pir import Graph
+
 
 @task
 def clean(dataset: DirectoryPath) -> DirectoryPath:
@@ -22,9 +24,8 @@ def clean(dataset: DirectoryPath) -> DirectoryPath:
 
 @task(framework=AdaptDL(min_replicas=1, max_replicas=4))
 def train(dataset: DirectoryPath) -> FilePath:
-    task_ctx = task.context()
     with open(dataset / "file.txt") as f:
-        print("train({}, config={})".format(f.read().strip(), task_ctx.config))
+        print("train({})".format(f.read().strip()))
     outfile = task.context().output
     with open(outfile, "w") as f:
         f.write("train_result")
@@ -50,10 +51,10 @@ def evaluate(kwargs: EvaluateInput) -> pandas.DataFrame:
 @task
 def translate(args: Tuple[FilePath, DirectoryPath]) -> DirectoryPath:
     model, sentences = args
-    task_ctx = task.context()
+    opctx = task.context()
     with open(model) as f, open(sentences / "file.txt") as g:
-        print("translate({}, {}, config={})".format(f.read().strip(), g.read().strip(), task_ctx.config))
-    outdir = task_ctx.output
+        print("translate({}, {}, config={})".format(f.read().strip(), g.read().strip(), opctx.config))
+    outdir = opctx.output
     with open(outdir / "file.txt", "w") as f:
         f.write("translate_result")
     return outdir
@@ -90,13 +91,13 @@ def train_pipeline(
     return sentiment_model, evaluate(eval_input)
 
 
-if __name__ == "__main__":
-    package = train_pipeline.package()
-    print(yaml.dump(asdict(package), sort_keys=False))
-    # Prepare inputs.
-    dir_1 = tempfile.TemporaryDirectory()
-    file_2 = tempfile.NamedTemporaryFile()
-    dir_3 = tempfile.TemporaryDirectory()
+# Prepare inputs.
+dir_1 = tempfile.TemporaryDirectory()
+file_2 = tempfile.NamedTemporaryFile()
+dir_3 = tempfile.TemporaryDirectory()
+
+def test_pipeline_run():
+
     with open(f"{dir_1.name}/file.txt", "w") as f:
         f.write("train_dataset")
     with open(f"{file_2.name}", "w") as f:
@@ -108,10 +109,15 @@ if __name__ == "__main__":
                                          FilePath(file_2.name),
                                          DirectoryPath(dir_3.name))
     with open(model_path) as f:
-        print("pipeline model: {}".format(f.read().strip()))
-    print("pipeline metrics: {}".format(metrics.to_records()))
+        assert f.read().strip() == "train_result"
+    record = metrics.to_records()[0]
+    assert record[0] == 0, record[1] == "result"
 
-    # Test calling single operator.
+
+def test_task_run():
+    with open(f"{dir_1.name}/file.txt", "w") as f:
+        f.write("train_dataset")
+    ## Test calling single operator.
     cleaned_path = clean(DirectoryPath(dir_1.name))
     with open(cleaned_path / "file.txt") as f:
-        print("cleaned dataset: {}".format(f.read().strip()))
+        assert  f.read().strip() == "clean_result"
